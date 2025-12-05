@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">TP3 sys comm</string>
+    <string name="activer_bluetooth">Activer Bluetooth</string>
+    <string name="nouvelles_donnes">Nouvelles données:</string>
+</resources>
