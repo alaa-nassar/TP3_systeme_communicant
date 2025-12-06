@@ -48,7 +48,6 @@ public class MainActivity extends AppCompatActivity {
     private static final long SCAN_PERIOD = 10000; // Scan for 10 seconds
 
     // Location and Navigation Service UUIDs
-    // TODO: Replace with your actual Nordic nRF service UUIDs
     private static final UUID SERVICE_UUID = UUID.fromString("00001819-0000-1000-8000-00805f9b34fb"); // Location and Navigation Service
     private static final UUID LN_FEATURE_UUID = UUID.fromString("00002a6a-0000-1000-8000-00805f9b34fb"); // LN Feature (Mandatory)
     private static final UUID LOCATION_SPEED_UUID = UUID.fromString("00002a67-0000-1000-8000-00805f9b34fb"); // Location and Speed (Mandatory)
@@ -410,9 +409,9 @@ public class MainActivity extends AppCompatActivity {
     private String parseFeatures(byte[] data) {
         StringBuilder sb = new StringBuilder();
         sb.append("Instantaneous Speed: ").append((data[0] & 0x01) != 0 ? "Yes" : "No").append("\n");
-        sb.append("Total Distance: ").append((data[0] & 0x02) != 0 ? "Yes" : "No").append("\n");
-        sb.append("Location: ").append((data[0] & 0x04) != 0 ? "Yes" : "No").append("\n");
-        sb.append("Elevation: ").append((data[0] & 0x08) != 0 ? "Yes" : "No");
+        sb.append("Total Distance: ").append((data[1] & 0x02) != 0 ? "Yes" : "No").append("\n");
+        sb.append("Location: ").append((data[2] & 0x04) != 0 ? "Yes" : "No").append("\n");
+        sb.append("Elevation: ").append((data[3] & 0x08) != 0 ? "Yes" : "No");
         return sb.toString();
     }
 
