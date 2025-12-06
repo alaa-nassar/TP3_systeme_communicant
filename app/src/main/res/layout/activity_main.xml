@@ -1,33 +1,186 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
     android:orientation="vertical"
     android:padding="16dp"
-    android:gravity="bottom|center_horizontal"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    tools:context=".MainActivity">
 
-    <Button
-        android:id="@+id/btn_activate_bt"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:layout_marginBottom="24dp"
-        android:fontFamily="casual"
-        android:text="@string/activer_bluetooth"
-        android:textAlignment="center"
-        android:textAllCaps="true"
+    <!-- Header Section -->
+    <TextView
+        android:id="@+id/tv_title"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:layout_marginBottom="16dp"
+        android:layout_marginTop="16dp"
+        android:gravity="center"
+        android:text="Location &amp; Navigation Service"
+        android:textColor="#2196F3"
+        android:textSize="24sp"
         android:textStyle="bold" />
+
+    <!-- Connection Status Section -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="16dp"
+        android:padding="12dp"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/tv_connection_status"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Status: Disconnected"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="#AA0000" />
+
+    </LinearLayout>
+
+    <!-- Control Buttons Section -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="16dp"
+        android:gravity="center">
+
+        <Button
+            android:id="@+id/btn_activate_bt"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Scan Devices"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/btn_disconnect"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Disconnect"
+            android:enabled="false" />
+
+    </LinearLayout>
+
+    <!-- Devices List Section -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Available Devices:"
+        android:textStyle="bold"
+        android:textSize="14sp"
+        android:layout_marginBottom="8dp" />
 
     <ListView
         android:id="@+id/devices_list"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:dividerHeight="8dp"/>
+        android:layout_height="190dp"
+        android:layout_marginBottom="16dp"
+        android:background="#F5F5F5"
+        android:divider="#CCCCCC"
+        android:dividerHeight="1dp" />
 
-    <TextView
-        android:id="@+id/tv_data"
+    <!-- Data Display Section (Initially Hidden) -->
+    <LinearLayout
+        android:id="@+id/data_panel"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/nouvelles_donnes" />
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:layout_marginTop="8dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Sensor Data"
+            android:textStyle="bold"
+            android:textSize="16sp"
+            android:layout_marginBottom="12dp" />
+
+        <!-- LN Feature -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="#E3F2FD"
+            android:padding="12dp"
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:id="@+id/tv_ln_feature"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="LN Features: —"
+                android:textSize="13sp"
+                android:textColor="#1976D2"
+                android:breakStrategy="balanced" />
+
+        </LinearLayout>
+
+        <!-- Location and Speed -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="#F3E5F5"
+            android:padding="12dp"
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:id="@+id/tv_location_speed"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Location &amp; Speed: —"
+                android:textSize="13sp"
+                android:textColor="#7B1FA2"
+                android:breakStrategy="balanced" />
+
+        </LinearLayout>
+
+        <!-- Position Quality -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="#E8F5E9"
+            android:padding="12dp"
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:id="@+id/tv_position_quality"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Position Quality: —"
+                android:textSize="13sp"
+                android:textColor="#388E3C"
+                android:breakStrategy="balanced" />
+
+        </LinearLayout>
+
+        <!-- Navigation -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="#FFF3E0"
+            android:padding="12dp"
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:id="@+id/tv_navigation"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Navigation: —"
+                android:textSize="13sp"
+                android:textColor="#E65100"
+                android:breakStrategy="balanced" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
 </LinearLayout>
