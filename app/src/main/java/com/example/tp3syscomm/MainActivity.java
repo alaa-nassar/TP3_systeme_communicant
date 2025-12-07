@@ -329,31 +329,79 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
+            UUID charUUID = characteristic.getUuid();
+            Log.d("BLE", "onCharacteristicRead - UUID: " + charUUID + ", Status: " + status);
+
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 byte[] data = characteristic.getValue();
-                if (data != null) {
-                    if (characteristic.getUuid().equals(LN_FEATURE_UUID)) {
+                if (data != null && data.length > 0) {
+                    Log.d("BLE", "Data received - Length: " + data.length + ", Hex: " + bytesToHex(data));
+
+                    if (charUUID.equals(LN_FEATURE_UUID)) {
                         String featureInfo = parseFeatures(data);
-                        runOnUiThread(() -> tvLnFeature.setText("LN Features:\n" + featureInfo));
+                        Log.d("BLE", "Parsed LN Features: " + featureInfo);
+                        runOnUiThread(() -> {
+                            tvLnFeature.setText("LN Features:\n" + featureInfo);
+                            Toast.makeText(MainActivity.this, "LN Features read", Toast.LENGTH_SHORT).show();
+                        });
+
+                    } else if (charUUID.equals(POSITION_QUALITY_UUID)) {
+                        String qualityData = parsePositionQuality(data);
+                        Log.d("BLE", "Parsed Position Quality: " + qualityData);
+                        runOnUiThread(() -> {
+                            tvPositionQuality.setText("Position Quality:\n" + qualityData);
+                            Toast.makeText(MainActivity.this, "Position Quality read", Toast.LENGTH_SHORT).show();
+                        });
                     }
+                } else {
+                    Log.e("BLE", "Received empty data for: " + charUUID);
                 }
+            } else {
+                Log.e("BLE", "Read failed for " + charUUID + " with status: " + status);
             }
         }
 
         @Override
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
             byte[] data = characteristic.getValue();
+            UUID charUUID = characteristic.getUuid();
+
+            Log.d("BLE", "onCharacteristicChanged - UUID: " + charUUID);
+
             if (data != null && data.length > 0) {
-                if (characteristic.getUuid().equals(LOCATION_SPEED_UUID)) {
+                Log.d("BLE", "Data received - Length: " + data.length + ", Hex: " + bytesToHex(data));
+
+                if (charUUID.equals(LOCATION_SPEED_UUID)) {
                     String locationData = parseLocationAndSpeed(data);
-                    runOnUiThread(() -> tvLocationSpeed.setText("Location & Speed:\n" + locationData));
-                } else if (characteristic.getUuid().equals(POSITION_QUALITY_UUID)) {
+                    Log.d("BLE", "Parsed Location & Speed: " + locationData);
+                    runOnUiThread(() -> {
+                        tvLocationSpeed.setText("Location & Speed:\n" + locationData);
+                        Toast.makeText(MainActivity.this, "Location updated", Toast.LENGTH_SHORT).show();
+                    });
+
+                } else if (charUUID.equals(POSITION_QUALITY_UUID)) {
                     String qualityData = parsePositionQuality(data);
-                    runOnUiThread(() -> tvPositionQuality.setText("Position Quality:\n" + qualityData));
-                } else if (characteristic.getUuid().equals(NAVIGATION_UUID)) {
+                    Log.d("BLE", "Parsed Position Quality: " + qualityData);
+                    runOnUiThread(() -> {
+                        tvPositionQuality.setText("Position Quality:\n" + qualityData);
+                        Toast.makeText(MainActivity.this, "Quality updated", Toast.LENGTH_SHORT).show();
+                    });
+
+                } else if (charUUID.equals(NAVIGATION_UUID)) {
                     String navData = parseNavigation(data);
-                    runOnUiThread(() -> tvNavigation.setText("Navigation:\n" + navData));
+                    Log.d("BLE", "Parsed Navigation: " + navData);
+                    runOnUiThread(() -> {
+                        tvNavigation.setText("Navigation:\n" + navData);
+                        Toast.makeText(MainActivity.this, "Navigation updated", Toast.LENGTH_SHORT).show();
+                    });
+
+                } else if (charUUID.equals(LN_CONTROL_POINT_UUID)) {
+                    Log.d("BLE", "LN Control Point data received (indication response)");
+                } else {
+                    Log.w("BLE", "Unknown characteristic changed: " + charUUID);
                 }
+            } else {
+                Log.e("BLE", "Received empty data for: " + charUUID);
             }
         }
 
@@ -451,33 +499,162 @@ public class MainActivity extends AppCompatActivity {
 
 
     private String parseLocationAndSpeed(byte[] data) {
+        Log.d("BLE", "parseLocationAndSpeed - Raw data length: " + data.length + ", hex: " + bytesToHex(data));
+
+        if (data.length < 19) {
+            Log.e("BLE", "Location & Speed data too short: " + data.length + " bytes");
+            return "Invalid data length";
+        }
+
         StringBuilder sb = new StringBuilder();
-        sb.append("Latitude: ").append(String.format("%.6f", readDouble(data, 1))).append("°\n");
-        sb.append("Longitude: ").append(String.format("%.6f", readDouble(data, 9))).append("°\n");
-        sb.append("Speed: ").append(String.format("%.2f", readUint16(data, 17))).append(" m/s");
+
+        try {
+            byte flags = data[0];
+            Log.d("BLE", "Flags: 0x" + String.format("%02X", flags));
+
+            // Check if Location is present (bit 0)
+            if ((flags & 0x01) != 0) {
+                // Latitude at bytes 1-8 (double, little-endian)
+                double latitude = readDouble(data, 1);
+                Log.d("BLE", "Latitude: " + latitude);
+                sb.append("Latitude: ").append(String.format("%.6f", latitude)).append("°\n");
+
+                // Longitude at bytes 9-16 (double, little-endian)
+                double longitude = readDouble(data, 9);
+                Log.d("BLE", "Longitude: " + longitude);
+                sb.append("Longitude: ").append(String.format("%.6f", longitude)).append("°\n");
+            } else {
+                sb.append("Latitude: N/A\n");
+                sb.append("Longitude: N/A\n");
+            }
+
+            // Check if Speed is present (bit 1)
+            if ((flags & 0x02) != 0) {
+                // Speed at bytes 17-18 (uint16, little-endian)
+                int speed = readUint16(data, 17);
+                Log.d("BLE", "Speed: " + speed);
+                sb.append("Speed: ").append(String.format("%.2f", speed / 100.0)).append(" m/s");
+            } else {
+                // Try reading speed anyway (might be present without flag)
+                if (data.length >= 19) {
+                    int speed = readUint16(data, 17);
+                    Log.d("BLE", "Speed (no flag): " + speed);
+                    sb.append("Speed: ").append(String.format("%.2f", speed / 100.0)).append(" m/s");
+                }
+            }
+
+        } catch (Exception e) {
+            Log.e("BLE", "Error parsing Location & Speed: " + e.getMessage());
+            return "Parse error: " + e.getMessage();
+        }
+
         return sb.toString();
     }
 
     private String parsePositionQuality(byte[] data) {
+        Log.d("BLE", "parsePositionQuality - Raw data length: " + data.length + ", hex: " + bytesToHex(data));
+
+        if (data.length < 4) {
+            Log.e("BLE", "Position Quality data too short: " + data.length + " bytes");
+            return "Invalid data length";
+        }
+
         StringBuilder sb = new StringBuilder();
-        sb.append("Number of Satellites: ").append(data[1] & 0xFF).append("\n");
-        sb.append("DOP (Dilution of Precision): ").append(String.format("%.2f", readUint16(data, 2) / 100.0));
+
+        try {
+            byte flags = data[0];
+            Log.d("BLE", "Flags: 0x" + String.format("%02X", flags));
+
+            // Number of satellites at byte 1
+            int satellites = data[1] & 0xFF;
+            Log.d("BLE", "Satellites: " + satellites);
+            sb.append("Satellites: ").append(satellites).append("\n");
+
+            // DOP at bytes 2-3 (uint16, little-endian, divided by 100)
+            int dopRaw = readUint16(data, 2);
+            double dop = dopRaw / 100.0;
+            Log.d("BLE", "DOP (raw): " + dopRaw + ", (calculated): " + dop);
+            sb.append("DOP: ").append(String.format("%.2f", dop));
+
+        } catch (Exception e) {
+            Log.e("BLE", "Error parsing Position Quality: " + e.getMessage());
+            return "Parse error: " + e.getMessage();
+        }
+
         return sb.toString();
     }
 
     private String parseNavigation(byte[] data) {
+        Log.d("BLE", "parseNavigation - Raw data length: " + data.length + ", hex: " + bytesToHex(data));
+
+        if (data.length < 7) {
+            Log.e("BLE", "Navigation data too short: " + data.length + " bytes");
+            return "Invalid data length";
+        }
+
         StringBuilder sb = new StringBuilder();
-        sb.append("Bearing: ").append(String.format("%.1f", readUint16(data, 1) / 100.0)).append("°\n");
-        sb.append("Distance: ").append(String.format("%.1f", readUint32(data, 3))).append(" m");
+
+        try {
+            byte flags = data[0];
+            Log.d("BLE", "Flags: 0x" + String.format("%02X", flags));
+
+            // Bearing at bytes 1-2 (uint16, little-endian, divided by 100)
+            int bearingRaw = readUint16(data, 1);
+            double bearing = bearingRaw / 100.0;
+            Log.d("BLE", "Bearing (raw): " + bearingRaw + ", (calculated): " + bearing);
+            sb.append("Bearing: ").append(String.format("%.1f", bearing)).append("°\n");
+
+            // Distance at bytes 3-6 (uint32, little-endian)
+            long distance = readUint32(data, 3);
+            Log.d("BLE", "Distance: " + distance);
+            sb.append("Distance: ").append(distance).append(" m");
+
+        } catch (Exception e) {
+            Log.e("BLE", "Error parsing Navigation: " + e.getMessage());
+            return "Parse error: " + e.getMessage();
+        }
+
         return sb.toString();
     }
 
     private String parseFeatures(byte[] data) {
+        Log.d("BLE", "parseFeatures - Raw data length: " + data.length + ", hex: " + bytesToHex(data));
+
+        if (data.length < 4) {
+            Log.e("BLE", "Features data too short: " + data.length + " bytes");
+            return "Invalid data length";
+        }
+
         StringBuilder sb = new StringBuilder();
-        sb.append("Instantaneous Speed: ").append((data[0] & 0x01) != 0 ? "Yes" : "No").append("\n");
-        sb.append("Total Distance: ").append((data[1] & 0x02) != 0 ? "Yes" : "No").append("\n");
-        sb.append("Location: ").append((data[2] & 0x04) != 0 ? "Yes" : "No").append("\n");
-        sb.append("Elevation: ").append((data[3] & 0x08) != 0 ? "Yes" : "No");
+
+        try {
+            // Each feature is a bit in different bytes
+            boolean instantSpeed = (data[0] & 0x01) != 0;
+            boolean totalDistance = (data[0] & 0x02) != 0;
+            boolean location = (data[0] & 0x04) != 0;
+            boolean elevation = (data[0] & 0x08) != 0;
+
+            Log.d("BLE", "Features - Speed:" + instantSpeed + " Distance:" + totalDistance + " Location:" + location + " Elevation:" + elevation);
+
+            sb.append("Instantaneous Speed: ").append(instantSpeed ? "Yes" : "No").append("\n");
+            sb.append("Total Distance: ").append(totalDistance ? "Yes" : "No").append("\n");
+            sb.append("Location: ").append(location ? "Yes" : "No").append("\n");
+            sb.append("Elevation: ").append(elevation ? "Yes" : "No");
+
+        } catch (Exception e) {
+            Log.e("BLE", "Error parsing Features: " + e.getMessage());
+            return "Parse error: " + e.getMessage();
+        }
+
+        return sb.toString();
+    }
+
+    // Helper function to convert bytes to hex for logging
+    private String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02X ", b));
+        }
         return sb.toString();
     }
 
