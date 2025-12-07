@@ -302,13 +302,23 @@ public class MainActivity extends AppCompatActivity {
                     readCharacteristic(gatt, service, LN_FEATURE_UUID);
 
                     // Subscribe to Location and Speed (Mandatory - Indicate)
+                    handler.postDelayed(() -> {
                     subscribeToNotifications(gatt, service, LOCATION_SPEED_UUID);
+                    }, 500);
 
-                    // Subscribe to Position Quality (Optional - Notify)
-                    subscribeToNotifications(gatt, service, POSITION_QUALITY_UUID);
+                    handler.postDelayed(() -> {
+                    readCharacteristic(gatt, service, POSITION_QUALITY_UUID);
+                    }, 1000);
 
                     // Subscribe to Navigation (Optional - Notify)
+                    handler.postDelayed(() -> {
                     subscribeToNotifications(gatt, service, NAVIGATION_UUID);
+                    }, 1500);
+
+                    handler.postDelayed(() -> {
+                    subscribeToNotifications(gatt, service, LN_CONTROL_POINT_UUID);
+                    }, 2000);
+
                 } else {
                     runOnUiThread(() -> {
                     Toast.makeText(MainActivity.this, "Location and Navigation Service not found", Toast.LENGTH_SHORT).show();
@@ -349,9 +359,25 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         public void onDescriptorWrite(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {
+            UUID charUUID = descriptor.getCharacteristic().getUuid();
+
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                // Subscription successful
-                Log.d("BLE", "Descriptor written: " + descriptor.getUuid() + " status=" + status);
+                Log.d("BLE", "✓ CCCD Write SUCCESS for: " + charUUID);
+                Log.d("BLE", "  Descriptor UUID: " + descriptor.getUuid());
+                Log.d("BLE", "  Value: " + java.util.Arrays.toString(descriptor.getValue()));
+
+                // Optional: Subscribe to next characteristic if needed
+                if (charUUID.equals(LOCATION_SPEED_UUID)) {
+                    Log.d("BLE", "Location & Speed is now subscribed!");
+                } else if (charUUID.equals(NAVIGATION_UUID)) {
+                    Log.d("BLE", "Navigation is now subscribed!");
+                } else if (charUUID.equals(LN_CONTROL_POINT_UUID)) {
+                    Log.d("BLE", "LN Control Point is now subscribed!");
+                }
+            } else {
+                Log.e("BLE", "✗ CCCD Write FAILED for: " + charUUID);
+                Log.e("BLE", "  Status code: " + status);
+                Log.e("BLE", "  GATT_SUCCESS=0, GATT_READ_NOT_PERMITTED=2, GATT_WRITE_NOT_PERMITTED=3, GATT_INSUFFICIENT_AUTHENTICATION=5");
             }
         }
     };
@@ -366,23 +392,63 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void subscribeToNotifications(BluetoothGatt gatt, BluetoothGattService service, UUID characteristicUUID) {
+        if (gatt == null || service == null) {
+            Log.e("BLE", "gatt or service is null");
+            return;
+        }
+
         BluetoothGattCharacteristic characteristic = service.getCharacteristic(characteristicUUID);
-        if (characteristic != null) {
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
-                gatt.setCharacteristicNotification(characteristic, true);
-                BluetoothGattDescriptor descriptor = characteristic.getDescriptor(CCCD_UUID);
-                if (descriptor != null) {
-                    if (characteristicUUID.equals(LOCATION_SPEED_UUID)) {
-                        descriptor.setValue(BluetoothGattDescriptor.ENABLE_INDICATION_VALUE);
-                    } else {
-                        descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
-                    }
-                    //descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
-                    gatt.writeDescriptor(descriptor);
-                }
+        if (characteristic == null) {
+            Log.e("BLE", "Characteristic not found: " + characteristicUUID);
+            return;
+        }
+
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            Log.e("BLE", "Missing BLUETOOTH_CONNECT permission");
+            return;
+        }
+
+        try {
+            // Step 1: Enable local notifications
+            boolean notificationEnabled = gatt.setCharacteristicNotification(characteristic, true);
+            Log.d("BLE", "setCharacteristicNotification(" + characteristicUUID + "): " + notificationEnabled);
+
+            // Step 2: Get CCCD descriptor
+            BluetoothGattDescriptor descriptor = characteristic.getDescriptor(CCCD_UUID);
+            if (descriptor == null) {
+                Log.e("BLE", "CCCD descriptor not found for: " + characteristicUUID);
+                return;
             }
+
+            // Step 3: Determine notification or indication
+            byte[] descriptorValue;
+            int properties = characteristic.getProperties();
+
+            if ((properties & BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0) {
+                descriptorValue = BluetoothGattDescriptor.ENABLE_INDICATION_VALUE;
+                Log.d("BLE", "Using INDICATION for: " + characteristicUUID);
+            } else if ((properties & BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0) {
+                descriptorValue = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE;
+                Log.d("BLE", "Using NOTIFICATION for: " + characteristicUUID);
+            } else {
+                Log.e("BLE", "Characteristic doesn't support notify/indicate: " + characteristicUUID);
+                return;
+            }
+
+            // Step 4: Write descriptor
+            descriptor.setValue(descriptorValue);
+            boolean writeSuccess = gatt.writeDescriptor(descriptor);
+            Log.d("BLE", "writeDescriptor(" + characteristicUUID + "): " + writeSuccess);
+
+            if (!writeSuccess) {
+                Log.e("BLE", "Failed to queue descriptor write for: " + characteristicUUID);
+            }
+
+        } catch (Exception e) {
+            Log.e("BLE", "Exception in subscribeToNotifications: " + e.getMessage());
         }
     }
+
 
     private String parseLocationAndSpeed(byte[] data) {
         StringBuilder sb = new StringBuilder();
