@@ -6,6 +6,8 @@ import android.bluetooth.BluetoothDevice;
 import android.bluetooth.le.BluetoothLeScanner;
 import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanResult;
+import android.location.Location;
+import android.location.LocationManager;
 import android.os.Bundle;
 
 import androidx.activity.EdgeToEdge;
@@ -22,11 +24,19 @@ import android.bluetooth.BluetoothManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.os.Build;
 import android.os.Handler;
 import android.util.Log;
+import android.view.View;
+import android.view.animation.RotateAnimation;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
@@ -34,6 +44,16 @@ import android.widget.Toast;
 import android.bluetooth.BluetoothGatt;
 import android.bluetooth.BluetoothGattCallback;
 import android.bluetooth.BluetoothProfile;
+
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.maps.CameraUpdateFactory;
+import com.google.android.gms.maps.GoogleMap;
+import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.OnMapReadyCallback;
+import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.MarkerOptions;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -41,20 +61,20 @@ import android.bluetooth.BluetoothGattCharacteristic;
 import android.bluetooth.BluetoothGattDescriptor;
 import android.bluetooth.BluetoothGattService;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements OnMapReadyCallback, SensorEventListener {
     // Constants
     private static final int REQUEST_ENABLE_BT = 1;
     private static final int REQUEST_PERMISSIONS_CODE = 2;
-    private static final long SCAN_PERIOD = 10000; // Scan for 10 seconds
+    private static final long SCAN_PERIOD = 10000;
 
     // Location and Navigation Service UUIDs
-    private static final UUID SERVICE_UUID = UUID.fromString("00001819-0000-1000-8000-00805f9b34fb"); // Location and Navigation Service
-    private static final UUID LN_FEATURE_UUID = UUID.fromString("00002a6a-0000-1000-8000-00805f9b34fb"); // LN Feature (Mandatory)
-    private static final UUID LOCATION_SPEED_UUID = UUID.fromString("00002a67-0000-1000-8000-00805f9b34fb"); // Location and Speed (Mandatory)
-    private static final UUID POSITION_QUALITY_UUID = UUID.fromString("00002a69-0000-1000-8000-00805f9b34fb"); // Position Quality (Optional)
-    private static final UUID LN_CONTROL_POINT_UUID = UUID.fromString("00002a6b-0000-1000-8000-00805f9b34fb"); // LN Control Point (Optional)
-    private static final UUID NAVIGATION_UUID = UUID.fromString("00002a68-0000-1000-8000-00805f9b34fb"); // Navigation (Optional)
-    private static final UUID CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"); // CCCD
+    private static final UUID SERVICE_UUID = UUID.fromString("00001819-0000-1000-8000-00805f9b34fb");
+    private static final UUID LN_FEATURE_UUID = UUID.fromString("00002a6a-0000-1000-8000-00805f9b34fb");
+    private static final UUID LOCATION_SPEED_UUID = UUID.fromString("00002a67-0000-1000-8000-00805f9b34fb");
+    private static final UUID POSITION_QUALITY_UUID = UUID.fromString("00002a69-0000-1000-8000-00805f9b34fb");
+    private static final UUID LN_CONTROL_POINT_UUID = UUID.fromString("00002a6b-0000-1000-8000-00805f9b34fb");
+    private static final UUID NAVIGATION_UUID = UUID.fromString("00002a68-0000-1000-8000-00805f9b34fb");
+    private static final UUID CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
 
     // UI Components
     private ListView devicesListView;
@@ -68,6 +88,10 @@ public class MainActivity extends AppCompatActivity {
     private Button btnStartScan;
     private Button btnDisconnect;
     private LinearLayout dataPanel;
+    private ImageView ivCompass;
+    private TextView tvHeading;
+    private FrameLayout mapContainer;
+    private GoogleMap googleMap;
 
     // Bluetooth
     private BluetoothAdapter bluetoothAdapter;
@@ -77,6 +101,21 @@ public class MainActivity extends AppCompatActivity {
     private ArrayList<BluetoothDevice> discoveredDevices = new ArrayList<>();
     private boolean scanning = false;
 
+    // Sensors
+    private SensorManager sensorManager;
+    private Sensor magnetometer;
+    private Sensor accelerometer;
+    private float[] mGravity;
+    private float[] mGeomagnetic;
+    private float currentBearing = 0f;
+    private float currentLatitude = 0f;
+    private float currentLongitude = 0f;
+    private Object updateMapWithLocation;
+    private double targetLatitude;
+    private double targetLongitude;
+    private TextView tvDistance;
+
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -84,8 +123,10 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         initializeBluetoothAdapter();
+        initializeSensors();
         initializeUIComponents();
         setupEventListeners();
+        initializeMap();
 
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.devices_list), (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
@@ -99,31 +140,92 @@ public class MainActivity extends AppCompatActivity {
         bluetoothAdapter = bluetoothManager.getAdapter();
     }
 
+    private void initializeSensors() {
+        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        magnetometer = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
+        accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        mGravity = new float[3];
+        mGeomagnetic = new float[3];
+    }
+
     private void initializeUIComponents() {
         devicesListView = findViewById(R.id.devices_list);
         tvConnectionStatus = findViewById(R.id.tv_connection_status);
         tvLnFeature = findViewById(R.id.tv_ln_feature);
         tvLocationSpeed = findViewById(R.id.tv_location_speed);
         tvPositionQuality = findViewById(R.id.tv_position_quality);
-        tvNavigation = findViewById(R.id.tv_navigation);
+        //tvNavigation = findViewById(R.id.tv_navigation);
         btnStartScan = findViewById(R.id.btn_activate_bt);
         btnDisconnect = findViewById(R.id.btn_disconnect);
         dataPanel = findViewById(R.id.data_panel);
+        ivCompass = findViewById(R.id.iv_compass);
+        tvHeading = findViewById(R.id.tv_heading);
+        mapContainer = findViewById(R.id.map_container);
+        tvDistance = findViewById(R.id.tv_distance);
+        findViewById(R.id.map_card).setVisibility(View.GONE);
+        findViewById(R.id.compass_card).setVisibility(View.GONE);
+        //findViewById(R.id.devices_card).setVisibility(View.GONE);
 
         deviceList = new ArrayList<>();
         devicesArrayAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, deviceList);
         devicesListView.setAdapter(devicesArrayAdapter);
 
-        // Initially hide data panel
         dataPanel.setVisibility(LinearLayout.GONE);
         updateConnectionStatus("Disconnected", false);
     }
 
+    private void initializeMap() {
+        SupportMapFragment mapFragment = new SupportMapFragment();
+        getSupportFragmentManager().beginTransaction()
+                .add(R.id.map_container, mapFragment)
+                .commit();
+        mapFragment.getMapAsync(this);
+    }
+
+    @Override
+    public void onMapReady(GoogleMap map) {
+        googleMap = map;
+        googleMap.setMapType(GoogleMap.MAP_TYPE_NORMAL);
+        googleMap.getUiSettings().setZoomControlsEnabled(true);
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED) {
+
+            googleMap.setMyLocationEnabled(true);
+
+            LocationManager locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+            Location lastLocation = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+
+            if (lastLocation != null) {
+                LatLng myPos = new LatLng(lastLocation.getLatitude(), lastLocation.getLongitude());
+                targetLatitude = myPos.latitude;
+                targetLongitude = myPos.longitude;
+                googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(myPos, 16f));
+            }
+        }
+    }
+
+    private float computeAutoBearing(double lat1, double lon1, double lat2, double lon2) {
+        double dLon = Math.toRadians(lon2 - lon1);
+        lat1 = Math.toRadians(lat1);
+        lat2 = Math.toRadians(lat2);
+
+        double y = Math.sin(dLon) * Math.cos(lat2);
+        double x = Math.cos(lat1)*Math.sin(lat2) -
+                Math.sin(lat1)*Math.cos(lat2)*Math.cos(dLon);
+
+        return (float)((Math.toDegrees(Math.atan2(y, x)) + 360) % 360);
+    }
+
+    private double computeDistance(double lat1, double lon1, double lat2, double lon2) {
+        float[] result = new float[3];
+        Location.distanceBetween(lat1, lon1, lat2, lon2, result);
+        return result[0]; // meters
+    }
+
+
     private void setupEventListeners() {
         btnStartScan.setOnClickListener(v -> activateBluetooth());
-
         btnDisconnect.setOnClickListener(v -> disconnectDevice());
-
         devicesListView.setOnItemClickListener((parent, view, position, id) -> {
             if (scanning) {
                 scanLeDevice(false);
@@ -267,8 +369,11 @@ public class MainActivity extends AppCompatActivity {
             }
         }
         dataPanel.setVisibility(LinearLayout.GONE);
+        findViewById(R.id.map_card).setVisibility(View.GONE);
+        findViewById(R.id.compass_card).setVisibility(View.GONE);
+        //findViewById(R.id.devices_card).setVisibility(View.GONE);
+
         updateConnectionStatus("Disconnected", false);
-        //clearDataDisplay();
     }
 
     private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
@@ -276,52 +381,51 @@ public class MainActivity extends AppCompatActivity {
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 updateConnectionStatus("Connected", true);
+                runOnUiThread(() -> {
+                    // Show map + compass + device list upon connection
+                    findViewById(R.id.map_card).setVisibility(View.VISIBLE);
+                    findViewById(R.id.compass_card).setVisibility(View.VISIBLE);
+                    findViewById(R.id.devices_card).setVisibility(View.VISIBLE);
+                });
+
                 if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
-                    {
-                        gatt.discoverServices();
-                        String result = null;
-                        Log.d("BLE", "discoverServices() called, result: " + result);
-                    }
+                    gatt.discoverServices();
+                    Log.d("BLE", "discoverServices() called");
                 }
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 updateConnectionStatus("Disconnected", false);
                 dataPanel.setVisibility(LinearLayout.GONE);
-                //clearDataDisplay();
             }
         }
 
         @Override
         public void onServicesDiscovered(BluetoothGatt gatt, int status) {
-            //Log.d(TAG, "onServicesDiscovered(): status=" + status);
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 BluetoothGattService service = gatt.getService(SERVICE_UUID);
                 if (service != null) {
                     runOnUiThread(() -> dataPanel.setVisibility(LinearLayout.VISIBLE));
 
-                    // Read LN Feature (Mandatory)
                     readCharacteristic(gatt, service, LN_FEATURE_UUID);
 
-                    // Subscribe to Location and Speed (Mandatory - Indicate)
                     handler.postDelayed(() -> {
-                    subscribeToNotifications(gatt, service, LOCATION_SPEED_UUID);
+                        subscribeToNotifications(gatt, service, LOCATION_SPEED_UUID);
                     }, 500);
 
                     handler.postDelayed(() -> {
-                    readCharacteristic(gatt, service, POSITION_QUALITY_UUID);
+                        readCharacteristic(gatt, service, POSITION_QUALITY_UUID);
                     }, 1000);
 
-                    // Subscribe to Navigation (Optional - Notify)
                     handler.postDelayed(() -> {
-                    subscribeToNotifications(gatt, service, NAVIGATION_UUID);
+                        subscribeToNotifications(gatt, service, NAVIGATION_UUID);
                     }, 1500);
 
                     handler.postDelayed(() -> {
-                    subscribeToNotifications(gatt, service, LN_CONTROL_POINT_UUID);
+                        subscribeToNotifications(gatt, service, LN_CONTROL_POINT_UUID);
                     }, 2000);
 
                 } else {
                     runOnUiThread(() -> {
-                    Toast.makeText(MainActivity.this, "Location and Navigation Service not found", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(MainActivity.this, "Location and Navigation Service not found", Toast.LENGTH_SHORT).show();
                     });
                 }
             }
@@ -397,8 +501,6 @@ public class MainActivity extends AppCompatActivity {
 
                 } else if (charUUID.equals(LN_CONTROL_POINT_UUID)) {
                     Log.d("BLE", "LN Control Point data received (indication response)");
-                } else {
-                    Log.w("BLE", "Unknown characteristic changed: " + charUUID);
                 }
             } else {
                 Log.e("BLE", "Received empty data for: " + charUUID);
@@ -411,21 +513,8 @@ public class MainActivity extends AppCompatActivity {
 
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 Log.d("BLE", "✓ CCCD Write SUCCESS for: " + charUUID);
-                Log.d("BLE", "  Descriptor UUID: " + descriptor.getUuid());
-                Log.d("BLE", "  Value: " + java.util.Arrays.toString(descriptor.getValue()));
-
-                // Optional: Subscribe to next characteristic if needed
-                if (charUUID.equals(LOCATION_SPEED_UUID)) {
-                    Log.d("BLE", "Location & Speed is now subscribed!");
-                } else if (charUUID.equals(NAVIGATION_UUID)) {
-                    Log.d("BLE", "Navigation is now subscribed!");
-                } else if (charUUID.equals(LN_CONTROL_POINT_UUID)) {
-                    Log.d("BLE", "LN Control Point is now subscribed!");
-                }
             } else {
                 Log.e("BLE", "✗ CCCD Write FAILED for: " + charUUID);
-                Log.e("BLE", "  Status code: " + status);
-                Log.e("BLE", "  GATT_SUCCESS=0, GATT_READ_NOT_PERMITTED=2, GATT_WRITE_NOT_PERMITTED=3, GATT_INSUFFICIENT_AUTHENTICATION=5");
             }
         }
     };
@@ -457,18 +546,15 @@ public class MainActivity extends AppCompatActivity {
         }
 
         try {
-            // Step 1: Enable local notifications
             boolean notificationEnabled = gatt.setCharacteristicNotification(characteristic, true);
             Log.d("BLE", "setCharacteristicNotification(" + characteristicUUID + "): " + notificationEnabled);
 
-            // Step 2: Get CCCD descriptor
             BluetoothGattDescriptor descriptor = characteristic.getDescriptor(CCCD_UUID);
             if (descriptor == null) {
                 Log.e("BLE", "CCCD descriptor not found for: " + characteristicUUID);
                 return;
             }
 
-            // Step 3: Determine notification or indication
             byte[] descriptorValue;
             int properties = characteristic.getProperties();
 
@@ -483,28 +569,57 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
 
-            // Step 4: Write descriptor
             descriptor.setValue(descriptorValue);
             boolean writeSuccess = gatt.writeDescriptor(descriptor);
             Log.d("BLE", "writeDescriptor(" + characteristicUUID + "): " + writeSuccess);
-
-            if (!writeSuccess) {
-                Log.e("BLE", "Failed to queue descriptor write for: " + characteristicUUID);
-            }
 
         } catch (Exception e) {
             Log.e("BLE", "Exception in subscribeToNotifications: " + e.getMessage());
         }
     }
 
+    @Override
+    public void onSensorChanged(SensorEvent event) {
+        if (event.sensor.getType() == Sensor.TYPE_ACCELEROMETER)
+            mGravity = event.values.clone();
+        if (event.sensor.getType() == Sensor.TYPE_MAGNETIC_FIELD)
+            mGeomagnetic = event.values.clone();
+
+        if (mGravity != null && mGeomagnetic != null) {
+            float R[] = new float[9];
+            float I[] = new float[9];
+            boolean success = SensorManager.getRotationMatrix(R, I, mGravity, mGeomagnetic);
+            if (success) {
+                float orientation[] = new float[3];
+                SensorManager.getOrientation(R, orientation);
+                float bearing = (float) Math.toDegrees(orientation[0]);
+
+                updateCompassFromServer(bearing); //  Utilise le même code de rotation
+            }
+        }
+
+    }
+
+    @Override
+    public void onAccuracyChanged(Sensor sensor, int accuracy) {}
+
+    // Mise à jour de la boussole avec les données du serveur BLE
+    public void updateCompassFromServer(float bearing) {
+        RotateAnimation rotateAnimation = new RotateAnimation(
+                currentBearing,
+                -bearing,
+                RotateAnimation.RELATIVE_TO_SELF, 0.5f,
+                RotateAnimation.RELATIVE_TO_SELF, 0.5f);
+        rotateAnimation.setDuration(500);
+        rotateAnimation.setFillAfter(true);
+        ivCompass.startAnimation(rotateAnimation);
+        currentBearing = -bearing;
+        tvHeading.setText(String.format("Heading: %.1f°", bearing));
+        Log.d("BLE", "Compass updated with bearing: " + bearing);
+    }
 
     private String parseLocationAndSpeed(byte[] data) {
         Log.d("BLE", "parseLocationAndSpeed - Raw data length: " + data.length + ", hex: " + bytesToHex(data));
-
-        if (data.length < 19) {
-            Log.e("BLE", "Location & Speed data too short: " + data.length + " bytes");
-            return "Invalid data length";
-        }
 
         StringBuilder sb = new StringBuilder();
 
@@ -512,44 +627,77 @@ public class MainActivity extends AppCompatActivity {
             byte flags = data[0];
             Log.d("BLE", "Flags: 0x" + String.format("%02X", flags));
 
-            // Check if Location is present (bit 0)
-            if ((flags & 0x01) != 0) {
-                // Latitude at bytes 1-8 (double, little-endian)
-                double latitude = readDouble(data, 1);
-                Log.d("BLE", "Latitude: " + latitude);
-                sb.append("Latitude: ").append(String.format("%.6f", latitude)).append("°\n");
+            double latitude = 0;
+            double longitude = 0;
 
-                // Longitude at bytes 9-16 (double, little-endian)
-                double longitude = readDouble(data, 9);
-                Log.d("BLE", "Longitude: " + longitude);
-                sb.append("Longitude: ").append(String.format("%.6f", longitude)).append("°\n");
+            if ((flags & 0x01) != 0 && data.length >= 17) {
+                // Read doubles (8 bytes each)
+                latitude = readDouble(data, 1);
+                longitude = readDouble(data, 9);
+                Log.d("BLE", "✓ Location found - Latitude: " + latitude + ", Longitude: " + longitude);
             } else {
-                sb.append("Latitude: N/A\n");
-                sb.append("Longitude: N/A\n");
+                // Default coordinates if flag not set
+                latitude = 48.8566; // Paris
+                longitude = 2.3522;
+                Log.w("BLE", "Location flag not set, using default coordinates");
             }
+            currentLatitude = (float) latitude;
+            currentLongitude = (float) longitude;
 
-            // Check if Speed is present (bit 1)
-            if ((flags & 0x02) != 0) {
-                // Speed at bytes 17-18 (uint16, little-endian)
+            // ---- Compute distance to target (server coordinates) ----
+            double distanceToTarget = computeDistance(
+                    currentLatitude,
+                    currentLongitude,
+                    targetLatitude,  // previously set target
+                    targetLongitude
+            );
+            Log.d("BLE", "Distance to target: " + distanceToTarget + " m");
+
+            runOnUiThread(() -> tvDistance.setText(
+                    String.format("Distance: %.1f m", distanceToTarget)
+            ));
+
+            sb.append("Latitude: ").append(String.format("%.6f", latitude)).append("°\n");
+            sb.append("Longitude: ").append(String.format("%.6f", longitude)).append("°\n");
+            sb.append("Distance to target: ").append(String.format("%.1f m", distanceToTarget)).append("\n");
+
+            // ---- Speed (optional) ----
+            if (data.length >= 19) {
                 int speed = readUint16(data, 17);
-                Log.d("BLE", "Speed: " + speed);
-                sb.append("Speed: ").append(String.format("%.2f", speed / 100.0)).append(" m/s");
-            } else {
-                // Try reading speed anyway (might be present without flag)
-                if (data.length >= 19) {
-                    int speed = readUint16(data, 17);
-                    Log.d("BLE", "Speed (no flag): " + speed);
-                    sb.append("Speed: ").append(String.format("%.2f", speed / 100.0)).append(" m/s");
-                }
+                sb.append("Speed: ").append(String.format("%.2f", speed / 100.0)).append(" m/s\n");
             }
+
+            // Update map
+            runOnUiThread(this::updateMapWithLocation);
 
         } catch (Exception e) {
-            Log.e("BLE", "Error parsing Location & Speed: " + e.getMessage());
+            Log.e("BLE", "Error parsing Location & Speed: " + e.getMessage(), e);
             return "Parse error: " + e.getMessage();
         }
 
         return sb.toString();
     }
+
+
+    private void updateMapWithLocation() {
+        Log.d("MAP", "Updating map: Lat=" + currentLatitude + ", Lon=" + currentLongitude);
+
+        if (googleMap == null) {
+            Log.e("MAP", "✗ GoogleMap is NULL!");
+            return;
+        }
+
+        LatLng location = new LatLng(currentLatitude, currentLongitude);
+
+        googleMap.clear();
+        googleMap.addMarker(new MarkerOptions()
+                .position(location)
+                .title("Device Location")
+                .snippet("Lat: " + String.format("%.6f", currentLatitude) + "\nLon: " + String.format("%.6f", currentLongitude)));
+        googleMap.animateCamera(CameraUpdateFactory.newLatLngZoom(location, 15f));
+        Log.d("MAP", "✓ Map updated successfully");
+    }
+
 
     private String parsePositionQuality(byte[] data) {
         Log.d("BLE", "parsePositionQuality - Raw data length: " + data.length + ", hex: " + bytesToHex(data));
@@ -563,17 +711,11 @@ public class MainActivity extends AppCompatActivity {
 
         try {
             byte flags = data[0];
-            Log.d("BLE", "Flags: 0x" + String.format("%02X", flags));
-
-            // Number of satellites at byte 1
             int satellites = data[1] & 0xFF;
-            Log.d("BLE", "Satellites: " + satellites);
-            sb.append("Satellites: ").append(satellites).append("\n");
-
-            // DOP at bytes 2-3 (uint16, little-endian, divided by 100)
             int dopRaw = readUint16(data, 2);
             double dop = dopRaw / 100.0;
-            Log.d("BLE", "DOP (raw): " + dopRaw + ", (calculated): " + dop);
+            Log.d("BLE", "Satellites: " + satellites + ", DOP: " + dop);
+            sb.append("Satellites: ").append(satellites).append("\n");
             sb.append("DOP: ").append(String.format("%.2f", dop));
 
         } catch (Exception e) {
@@ -587,7 +729,7 @@ public class MainActivity extends AppCompatActivity {
     private String parseNavigation(byte[] data) {
         Log.d("BLE", "parseNavigation - Raw data length: " + data.length + ", hex: " + bytesToHex(data));
 
-        if (data.length < 7) {
+        if (data.length < 15) { // Ensure enough bytes for latitude/longitude
             Log.e("BLE", "Navigation data too short: " + data.length + " bytes");
             return "Invalid data length";
         }
@@ -596,18 +738,30 @@ public class MainActivity extends AppCompatActivity {
 
         try {
             byte flags = data[0];
-            Log.d("BLE", "Flags: 0x" + String.format("%02X", flags));
+            Log.d("BLE", "Navigation Flags: 0x" + String.format("%02X", flags));
 
-            // Bearing at bytes 1-2 (uint16, little-endian, divided by 100)
+            // Bearing from device (optional)
             int bearingRaw = readUint16(data, 1);
-            double bearing = bearingRaw / 100.0;
-            Log.d("BLE", "Bearing (raw): " + bearingRaw + ", (calculated): " + bearing);
-            sb.append("Bearing: ").append(String.format("%.1f", bearing)).append("°\n");
+            double serverBearing = bearingRaw / 100.0;
 
-            // Distance at bytes 3-6 (uint32, little-endian)
-            long distance = readUint32(data, 3);
-            Log.d("BLE", "Distance: " + distance);
-            sb.append("Distance: ").append(distance).append(" m");
+            // Distance from device (optional)
+            long serverDistance = readUint32(data, 3);
+
+            Log.d("BLE", "Server Bearing: " + serverBearing + "°");
+            Log.d("BLE", "Server Distance: " + serverDistance + " m");
+
+
+            // ---- Compute bearing from current location to server ----
+            float finalBearing = computeAutoBearing(
+                    currentLatitude,
+                    currentLongitude,
+                    targetLatitude,
+                    targetLongitude
+            );
+            Log.d("BLE", "Bearing to server: " + finalBearing + "°");
+
+            runOnUiThread(() -> updateCompassFromServer(finalBearing));
+            sb.append("Bearing: ").append(String.format("%.2f°", finalBearing)).append("\n");
 
         } catch (Exception e) {
             Log.e("BLE", "Error parsing Navigation: " + e.getMessage());
@@ -616,6 +770,8 @@ public class MainActivity extends AppCompatActivity {
 
         return sb.toString();
     }
+
+
 
     private String parseFeatures(byte[] data) {
         Log.d("BLE", "parseFeatures - Raw data length: " + data.length + ", hex: " + bytesToHex(data));
@@ -628,7 +784,6 @@ public class MainActivity extends AppCompatActivity {
         StringBuilder sb = new StringBuilder();
 
         try {
-            // Each feature is a bit in different bytes
             boolean instantSpeed = (data[0] & 0x01) != 0;
             boolean totalDistance = (data[0] & 0x02) != 0;
             boolean location = (data[0] & 0x04) != 0;
@@ -649,7 +804,6 @@ public class MainActivity extends AppCompatActivity {
         return sb.toString();
     }
 
-    // Helper function to convert bytes to hex for logging
     private String bytesToHex(byte[] bytes) {
         StringBuilder sb = new StringBuilder();
         for (byte b : bytes) {
@@ -694,12 +848,22 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    /*private void clearDataDisplay() {
-        tvLnFeature.setText("LN Features: —");
-        tvLocationSpeed.setText("Location & Speed: —");
-        tvPositionQuality.setText("Position Quality: —");
-        tvNavigation.setText("Navigation: —");
-    }*/
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (sensorManager != null) {
+            sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_UI);
+            sensorManager.registerListener(this, magnetometer, SensorManager.SENSOR_DELAY_UI);
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (sensorManager != null) {
+            sensorManager.unregisterListener(this);
+        }
+    }
 
     @Override
     protected void onDestroy() {
