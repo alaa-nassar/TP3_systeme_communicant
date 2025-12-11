@@ -1,34 +1,31 @@
 package com.example.tp3syscomm;
 
-import static android.content.ContentValues.TAG;
-
+import android.Manifest;
+import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothGatt;
+import android.bluetooth.BluetoothGattCallback;
+import android.bluetooth.BluetoothGattCharacteristic;
+import android.bluetooth.BluetoothGattDescriptor;
+import android.bluetooth.BluetoothGattService;
+
+import android.bluetooth.BluetoothManager;
+import android.bluetooth.BluetoothProfile;
 import android.bluetooth.le.BluetoothLeScanner;
 import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanResult;
-import android.location.Location;
-import android.location.LocationManager;
-import android.os.Bundle;
-
-import androidx.activity.EdgeToEdge;
-import androidx.annotation.NonNull;
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
-import androidx.core.graphics.Insets;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
-import android.Manifest;
-import android.bluetooth.BluetoothAdapter;
-import android.bluetooth.BluetoothManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.location.Location;
+import android.location.LocationManager;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
 import android.util.Log;
 import android.view.View;
@@ -41,25 +38,26 @@ import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
-import android.bluetooth.BluetoothGatt;
-import android.bluetooth.BluetoothGattCallback;
-import android.bluetooth.BluetoothProfile;
 
-import com.google.android.gms.location.FusedLocationProviderClient;
-import com.google.android.gms.location.LocationServices;
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
+
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
-import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.OnMapReadyCallback;
+import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.MarkerOptions;
+import com.google.android.gms.maps.model.PolylineOptions;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import android.bluetooth.BluetoothGattCharacteristic;
-import android.bluetooth.BluetoothGattDescriptor;
-import android.bluetooth.BluetoothGattService;
 
 public class MainActivity extends AppCompatActivity implements OnMapReadyCallback, SensorEventListener {
     // Constants
@@ -92,6 +90,7 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
     private TextView tvHeading;
     private FrameLayout mapContainer;
     private GoogleMap googleMap;
+    private TextView tvDistance;
 
     // Bluetooth
     private BluetoothAdapter bluetoothAdapter;
@@ -108,18 +107,23 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
     private float[] mGravity;
     private float[] mGeomagnetic;
     private float currentBearing = 0f;
-    private float currentLatitude = 0f;
-    private float currentLongitude = 0f;
-    private Object updateMapWithLocation;
+    private double currentLatitude = 0f;
+    private double currentLongitude = 0f;
     private double targetLatitude;
     private double targetLongitude;
-    private TextView tvDistance;
 
+    // LN Features flags
+    private boolean hasInstantSpeed = false;
+    private boolean hasTotalDistance = false;
+    private boolean hasLocation = false;
+    private boolean hasElevation = false;
+    private boolean hasHeading = false;
+    private boolean hasNavigation = false;
+    private boolean userIsMovingMap;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
 
         initializeBluetoothAdapter();
@@ -133,6 +137,7 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
             return insets;
         });
+
     }
 
     private void initializeBluetoothAdapter() {
@@ -154,7 +159,6 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         tvLnFeature = findViewById(R.id.tv_ln_feature);
         tvLocationSpeed = findViewById(R.id.tv_location_speed);
         tvPositionQuality = findViewById(R.id.tv_position_quality);
-        //tvNavigation = findViewById(R.id.tv_navigation);
         btnStartScan = findViewById(R.id.btn_activate_bt);
         btnDisconnect = findViewById(R.id.btn_disconnect);
         dataPanel = findViewById(R.id.data_panel);
@@ -162,9 +166,10 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         tvHeading = findViewById(R.id.tv_heading);
         mapContainer = findViewById(R.id.map_container);
         tvDistance = findViewById(R.id.tv_distance);
+
+        // Hide all cards initially
         findViewById(R.id.map_card).setVisibility(View.GONE);
         findViewById(R.id.compass_card).setVisibility(View.GONE);
-        //findViewById(R.id.devices_card).setVisibility(View.GONE);
 
         deviceList = new ArrayList<>();
         devicesArrayAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, deviceList);
@@ -173,7 +178,6 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         dataPanel.setVisibility(LinearLayout.GONE);
         updateConnectionStatus("Disconnected", false);
     }
-
 
     private void initializeMap() {
         SupportMapFragment mapFragment = new SupportMapFragment();
@@ -188,9 +192,10 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         googleMap = map;
         googleMap.setMapType(GoogleMap.MAP_TYPE_NORMAL);
         googleMap.getUiSettings().setZoomControlsEnabled(true);
+
+
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
                 == PackageManager.PERMISSION_GRANTED) {
-
             googleMap.setMyLocationEnabled(true);
 
             LocationManager locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
@@ -198,11 +203,40 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
 
             if (lastLocation != null) {
                 LatLng myPos = new LatLng(lastLocation.getLatitude(), lastLocation.getLongitude());
-                targetLongitude = myPos.longitude;
-                targetLatitude = myPos.latitude;
+                currentLongitude = myPos.longitude;
+                currentLatitude = myPos.latitude;
                 googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(myPos, 16f));
             }
         }
+    }
+
+    private void updateUIBasedOnFeatures() {
+        runOnUiThread(() -> {
+            // Map visibility: only if Location is supported
+            if (hasLocation) {
+                findViewById(R.id.map_card).setVisibility(View.VISIBLE);
+                Log.d("LN_FEATURES", "Map enabled - Location supported");
+            } else {
+                findViewById(R.id.map_card).setVisibility(View.GONE);
+                Log.d("LN_FEATURES", "Map disabled - Location not supported");
+            }
+
+            // Compass visibility: only if Heading or Navigation is supported
+            if (hasHeading || hasNavigation) {
+                findViewById(R.id.compass_card).setVisibility(View.VISIBLE);
+                Log.d("LN_FEATURES", "Compass enabled - Heading/Navigation supported");
+            } else {
+                findViewById(R.id.compass_card).setVisibility(View.GONE);
+                Log.d("LN_FEATURES", "Compass disabled - Heading/Navigation not supported");
+            }
+
+            // Distance visibility: only if Location is supported
+            if (hasLocation && tvDistance != null) {
+                tvDistance.setVisibility(View.VISIBLE);
+            } else if (tvDistance != null) {
+                tvDistance.setVisibility(View.GONE);
+            }
+        });
     }
 
     private float computeAutoBearing(double lat1, double lon1, double lat2, double lon2) {
@@ -222,7 +256,6 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         Location.distanceBetween(lat1, lon1, lat2, lon2, result);
         return result[0]; // meters
     }
-
 
     private void setupEventListeners() {
         btnStartScan.setOnClickListener(v -> activateBluetooth());
@@ -369,11 +402,18 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                 bluetoothGatt = null;
             }
         }
+
+        // Reset features
+        hasInstantSpeed = false;
+        hasTotalDistance = false;
+        hasLocation = false;
+        hasElevation = false;
+        hasHeading = false;
+        hasNavigation = false;
+
         dataPanel.setVisibility(LinearLayout.GONE);
         findViewById(R.id.map_card).setVisibility(View.GONE);
         findViewById(R.id.compass_card).setVisibility(View.GONE);
-        //findViewById(R.id.devices_card).setVisibility(View.GONE);
-
         updateConnectionStatus("Disconnected", false);
     }
 
@@ -383,9 +423,6 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 updateConnectionStatus("Connected", true);
                 runOnUiThread(() -> {
-                    // Show map + compass + device list upon connection
-                    findViewById(R.id.map_card).setVisibility(View.VISIBLE);
-                    findViewById(R.id.compass_card).setVisibility(View.VISIBLE);
                     findViewById(R.id.devices_card).setVisibility(View.VISIBLE);
                 });
 
@@ -406,10 +443,13 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                 if (service != null) {
                     runOnUiThread(() -> dataPanel.setVisibility(LinearLayout.VISIBLE));
 
+                    // Read LN Features first
                     readCharacteristic(gatt, service, LN_FEATURE_UUID);
 
                     handler.postDelayed(() -> {
-                        subscribeToNotifications(gatt, service, LOCATION_SPEED_UUID);
+                        if (hasLocation) {
+                            subscribeToNotifications(gatt, service, LOCATION_SPEED_UUID);
+                        }
                     }, 500);
 
                     handler.postDelayed(() -> {
@@ -417,12 +457,10 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                     }, 1000);
 
                     handler.postDelayed(() -> {
-                        subscribeToNotifications(gatt, service, NAVIGATION_UUID);
+                        if (hasNavigation) {
+                            subscribeToNotifications(gatt, service, NAVIGATION_UUID);
+                        }
                     }, 1500);
-
-                    handler.postDelayed(() -> {
-                        subscribeToNotifications(gatt, service, LN_CONTROL_POINT_UUID);
-                    }, 2000);
 
                 } else {
                     runOnUiThread(() -> {
@@ -448,6 +486,19 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                         runOnUiThread(() -> {
                             tvLnFeature.setText("LN Features:\n" + featureInfo);
                             Toast.makeText(MainActivity.this, "LN Features read", Toast.LENGTH_SHORT).show();
+                            updateUIBasedOnFeatures();
+
+                            if ((hasHeading || hasNavigation) && mGravity != null && mGeomagnetic != null) {
+                                float[] R = new float[9];
+                                float[] I = new float[9];
+                                boolean success = SensorManager.getRotationMatrix(R, I, mGravity, mGeomagnetic);
+                                if (success) {
+                                    float[] orientation = new float[3];
+                                    SensorManager.getOrientation(R, orientation);
+                                    float bearing = (float) Math.toDegrees(orientation[0]);
+                                    updateCompassFromServer(bearing);
+                                }
+                            }
                         });
 
                     } else if (charUUID.equals(POSITION_QUALITY_UUID)) {
@@ -495,13 +546,6 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                 } else if (charUUID.equals(NAVIGATION_UUID)) {
                     String navData = parseNavigation(data);
                     Log.d("BLE", "Parsed Navigation: " + navData);
-                    runOnUiThread(() -> {
-                        tvNavigation.setText("Navigation:\n" + navData);
-                        Toast.makeText(MainActivity.this, "Navigation updated", Toast.LENGTH_SHORT).show();
-                    });
-
-                } else if (charUUID.equals(LN_CONTROL_POINT_UUID)) {
-                    Log.d("BLE", "LN Control Point data received (indication response)");
                 }
             } else {
                 Log.e("BLE", "Received empty data for: " + charUUID);
@@ -595,16 +639,16 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                 SensorManager.getOrientation(R, orientation);
                 float bearing = (float) Math.toDegrees(orientation[0]);
 
-                updateCompassFromServer(bearing); //  Utilise le même code de rotation
+                if (hasHeading || hasNavigation) {
+                    updateCompassFromServer(bearing);
+                }
             }
         }
-
     }
 
     @Override
     public void onAccuracyChanged(Sensor sensor, int accuracy) {}
 
-    // Mise à jour de la boussole avec les données du serveur BLE
     public void updateCompassFromServer(float bearing) {
         RotateAnimation rotateAnimation = new RotateAnimation(
                 currentBearing,
@@ -632,30 +676,22 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
             double longitude = 0;
 
             if ((flags & 0x01) != 0 && data.length >= 17) {
-                // Read doubles (8 bytes each)
                 latitude = readDouble(data, 1);
                 longitude = readDouble(data, 9);
                 Log.d("BLE", "✓ Location found - Latitude: " + latitude + ", Longitude: " + longitude);
             } else {
-                // Default coordinates if flag not set
-                latitude = 48.8566; // Paris
+                latitude = 48.8566;
                 longitude = 2.3522;
                 Log.w("BLE", "Location flag not set, using default coordinates");
             }
 
-            //targetLatitude = currentLatitude;
-            //targetLongitude = currentLongitude;
-            // Update global coordinates
-            currentLatitude = (float) latitude;
-            currentLongitude = (float) longitude;
+            targetLatitude = (float) latitude;
+            targetLongitude = (float) longitude;
 
-
-
-            // ---- Compute distance to target (server coordinates) ----
             double distanceToTarget = computeDistance(
                     currentLatitude,
                     currentLongitude,
-                    targetLatitude,  // previously set target
+                    targetLatitude,
                     targetLongitude
             );
             Log.d("BLE", "Distance to target: " + distanceToTarget + " m");
@@ -668,13 +704,11 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
             sb.append("Longitude: ").append(String.format("%.6f", longitude)).append("°\n");
             sb.append("Distance to target: ").append(String.format("%.1f m", distanceToTarget)).append("\n");
 
-            // ---- Speed (optional) ----
             if (data.length >= 19) {
                 int speed = readUint16(data, 17);
                 sb.append("Speed: ").append(String.format("%.2f", speed / 100.0)).append(" m/s\n");
             }
 
-            // Update map
             runOnUiThread(this::updateMapWithLocation);
 
         } catch (Exception e) {
@@ -685,7 +719,6 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         return sb.toString();
     }
 
-
     private void updateMapWithLocation() {
         Log.d("MAP", "Updating map: Lat=" + currentLatitude + ", Lon=" + currentLongitude);
 
@@ -694,17 +727,39 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
             return;
         }
 
-        LatLng location = new LatLng(currentLatitude, currentLongitude);
+        if (!hasLocation) {
+            Log.d("MAP", "Location feature not supported, skipping map update");
+            return;
+        }
+
+        if (userIsMovingMap) {
+            return; // NE PAS recentrer la carte
+        }
+
+        LatLng deviceLocation = new LatLng(currentLatitude, currentLongitude);
+        LatLng targetLocation = new LatLng(targetLatitude, targetLongitude);
 
         googleMap.clear();
-        googleMap.addMarker(new MarkerOptions()
-                .position(location)
-                .title("Device Location")
-                .snippet("Lat: " + String.format("%.6f", currentLatitude) + "\nLon: " + String.format("%.6f", currentLongitude)));
-        googleMap.animateCamera(CameraUpdateFactory.newLatLngZoom(location, 15f));
-        Log.d("MAP", "✓ Map updated successfully");
-    }
 
+        // Add marker for target location
+        googleMap.addMarker(new MarkerOptions()
+                .position(targetLocation)
+                .title("Target Location")
+                .snippet("Lat: " + String.format("%.6f", targetLatitude) + "\nLon: " + String.format("%.6f", targetLongitude)));
+
+        // Draw blue line connecting current location to target
+        PolylineOptions polylineOptions = new PolylineOptions()
+                .add(deviceLocation)
+                .add(targetLocation)
+                .width(10)
+                .color(Color.BLUE)
+                .geodesic(true);
+
+        googleMap.addPolyline(polylineOptions);
+
+        googleMap.moveCamera(CameraUpdateFactory.newLatLng(targetLocation));
+        Log.d("MAP", "✓ Map updated successfully with line to target");
+    }
 
     private String parsePositionQuality(byte[] data) {
         Log.d("BLE", "parsePositionQuality - Raw data length: " + data.length + ", hex: " + bytesToHex(data));
@@ -736,7 +791,7 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
     private String parseNavigation(byte[] data) {
         Log.d("BLE", "parseNavigation - Raw data length: " + data.length + ", hex: " + bytesToHex(data));
 
-        if (data.length < 15) { // Ensure enough bytes for latitude/longitude
+        if (data.length < 15) {
             Log.e("BLE", "Navigation data too short: " + data.length + " bytes");
             return "Invalid data length";
         }
@@ -747,18 +802,14 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
             byte flags = data[0];
             Log.d("BLE", "Navigation Flags: 0x" + String.format("%02X", flags));
 
-            // Bearing from device (optional)
             int bearingRaw = readUint16(data, 1);
             double serverBearing = bearingRaw / 100.0;
 
-            // Distance from device (optional)
             long serverDistance = readUint32(data, 3);
 
             Log.d("BLE", "Server Bearing: " + serverBearing + "°");
             Log.d("BLE", "Server Distance: " + serverDistance + " m");
 
-
-            // ---- Compute bearing from current location to server ----
             float finalBearing = computeAutoBearing(
                     currentLatitude,
                     currentLongitude,
@@ -767,15 +818,10 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
             );
             Log.d("BLE", "Bearing to server: " + finalBearing + "°");
 
-            // ---- Update compass ----
-            runOnUiThread(() -> updateCompassFromServer(finalBearing));
+            if (hasHeading || hasNavigation) {
+                runOnUiThread(() -> updateCompassFromServer(finalBearing));
+            }
 
-            // ---- Update distance on UI ----
-            /*runOnUiThread(() -> tvDistance.setText(
-                    String.format("Distance to server: %.1f m", calculatedDistance)
-            ));*/
-
-            // ---- Build UI text ----
             sb.append("Bearing: ").append(String.format("%.2f°", finalBearing)).append("\n");
 
         } catch (Exception e) {
@@ -785,8 +831,6 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
 
         return sb.toString();
     }
-
-
 
     private String parseFeatures(byte[] data) {
         Log.d("BLE", "parseFeatures - Raw data length: " + data.length + ", hex: " + bytesToHex(data));
@@ -799,17 +843,25 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         StringBuilder sb = new StringBuilder();
 
         try {
-            boolean instantSpeed = (data[0] & 0x01) != 0;
-            boolean totalDistance = (data[0] & 0x02) != 0;
-            boolean location = (data[0] & 0x04) != 0;
-            boolean elevation = (data[0] & 0x08) != 0;
+            hasInstantSpeed = (data[0] & 0x01) != 0;
+            hasTotalDistance = (data[0] & 0x02) != 0;
+            hasLocation = (data[0] & 0x04) != 0;
+            hasElevation = (data[0] & 0x08) != 0;
+            hasHeading = (data[0] & 0x10) != 0;
 
-            Log.d("BLE", "Features - Speed:" + instantSpeed + " Distance:" + totalDistance + " Location:" + location + " Elevation:" + elevation);
+            // Navigation is bit 6 (0x40) according to spec
+            hasNavigation = (data[0] & 0x40) != 0;
 
-            sb.append("Instantaneous Speed: ").append(instantSpeed ? "Yes" : "No").append("\n");
-            sb.append("Total Distance: ").append(totalDistance ? "Yes" : "No").append("\n");
-            sb.append("Location: ").append(location ? "Yes" : "No").append("\n");
-            sb.append("Elevation: ").append(elevation ? "Yes" : "No");
+            Log.d("LN_FEATURES", "Speed:" + hasInstantSpeed + " Distance:" + hasTotalDistance +
+                    " Location:" + hasLocation + " Elevation:" + hasElevation +
+                    " Heading:" + hasHeading + " Navigation:" + hasNavigation);
+
+            sb.append("Instantaneous Speed: ").append(hasInstantSpeed ? "Yes" : "No").append("\n");
+            sb.append("Total Distance: ").append(hasTotalDistance ? "Yes" : "No").append("\n");
+            sb.append("Location: ").append(hasLocation ? "Yes" : "No").append("\n");
+            sb.append("Elevation: ").append(hasElevation ? "Yes" : "No").append("\n");
+            sb.append("Heading: ").append(hasHeading ? "Yes" : "No").append("\n");
+            sb.append("Navigation: ").append(hasNavigation ? "Yes" : "No");
 
         } catch (Exception e) {
             Log.e("BLE", "Error parsing Features: " + e.getMessage());
@@ -867,6 +919,7 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
     protected void onResume() {
         super.onResume();
         if (sensorManager != null) {
+            // Toujours enregistrer les capteurs
             sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_UI);
             sensorManager.registerListener(this, magnetometer, SensorManager.SENSOR_DELAY_UI);
         }
@@ -879,6 +932,7 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
             sensorManager.unregisterListener(this);
         }
     }
+
 
     @Override
     protected void onDestroy() {
