@@ -25,6 +25,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"/>
 
+        <!-- Buttons Row -->
         <LinearLayout
             android:orientation="horizontal"
             android:layout_width="match_parent"
@@ -78,13 +79,12 @@
             android:elevation="2dp"
             android:clipToOutline="true"/>
 
-        <!-- Devices List Card (keeps your ids) -->
+        <!-- Devices List -->
         <androidx.cardview.widget.CardView
             android:id="@+id/devices_card"
             android:layout_width="match_parent"
             android:layout_height="133dp"
             android:layout_marginBottom="16dp"
-            android:clipToOutline="true"
             app:cardCornerRadius="16dp"
             app:cardElevation="6dp">
 
@@ -97,13 +97,13 @@
                 android:padding="8dp" />
         </androidx.cardview.widget.CardView>
 
-        <!-- Row: Map (left) + Compass (right) -->
+        <!-- Map Section -->
         <LinearLayout
             android:orientation="vertical"
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
 
-            <!-- GRAND MAP -->
+            <!-- Big Map -->
             <androidx.cardview.widget.CardView
                 android:id="@+id/map_card"
                 android:layout_width="match_parent"
@@ -115,51 +115,49 @@
                     android:layout_height="269dp" />
             </androidx.cardview.widget.CardView>
 
-        <!-- PETITE BOUSSOLE -->
-        <androidx.cardview.widget.CardView
-            android:id="@+id/compass_card"
-            android:layout_width="match_parent"
-            android:layout_height="180dp"
-            android:layout_marginTop="10dp">
-
-            <FrameLayout
+            <!-- Compass -->
+            <androidx.cardview.widget.CardView
+                android:id="@+id/compass_card"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:padding="8dp">
+                android:layout_height="180dp"
+                android:layout_marginTop="10dp">
 
-                <ImageView
-                    android:id="@+id/iv_compass"
-                    android:layout_width="90dp"
-                    android:layout_height="90dp"
-                    android:layout_gravity="center"
-                    android:src="@drawable/ic_compass_vector"/>
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:padding="8dp">
 
-                <TextView
-                    android:id="@+id/tv_heading"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="bottom|center_horizontal"
-                    android:text="Heading: --°"
-                    android:layout_marginBottom="0dp"
-                    android:textStyle="bold"/>
-                <TextView
-                    android:id="@+id/tv_distance"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="bottom|center_horizontal"
-                    android:layout_marginBottom="20dp"
-                    android:text="Distance: -- m"
-                    android:textStyle="bold"
-                    android:textColor="@color/text_primary"
-                    android:textSize="14sp"/>
-            </FrameLayout>
-        </androidx.cardview.widget.CardView>
-    </LinearLayout>
+                    <ImageView
+                        android:id="@+id/iv_compass"
+                        android:layout_width="90dp"
+                        android:layout_height="90dp"
+                        android:layout_gravity="center"
+                        android:src="@drawable/ic_compass_vector"/>
 
-    <!-- Bluetooth Controls (keep your ids) -->
+                    <TextView
+                        android:id="@+id/tv_distance"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="bottom|center_horizontal"
+                        android:layout_marginBottom="20dp"
+                        android:text="Distance: -- m"
+                        android:textStyle="bold"
+                        android:textColor="@color/text_primary"
+                        android:textSize="14sp"/>
 
+                    <TextView
+                        android:id="@+id/tv_heading"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Heading: --°"
+                        android:textStyle="bold"
+                        android:layout_gravity="bottom|center_horizontal" />
 
-        <!-- Data Panel (keeps your id) -->
+                </FrameLayout>
+            </androidx.cardview.widget.CardView>
+        </LinearLayout>
+
+        <!-- Data Panel -->
         <LinearLayout
             android:id="@+id/data_panel"
             android:orientation="vertical"

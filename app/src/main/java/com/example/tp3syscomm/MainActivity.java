@@ -174,6 +174,7 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         updateConnectionStatus("Disconnected", false);
     }
 
+
     private void initializeMap() {
         SupportMapFragment mapFragment = new SupportMapFragment();
         getSupportFragmentManager().beginTransaction()
@@ -197,8 +198,8 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
 
             if (lastLocation != null) {
                 LatLng myPos = new LatLng(lastLocation.getLatitude(), lastLocation.getLongitude());
-                targetLatitude = myPos.latitude;
                 targetLongitude = myPos.longitude;
+                targetLatitude = myPos.latitude;
                 googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(myPos, 16f));
             }
         }
@@ -641,8 +642,14 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                 longitude = 2.3522;
                 Log.w("BLE", "Location flag not set, using default coordinates");
             }
+
+            //targetLatitude = currentLatitude;
+            //targetLongitude = currentLongitude;
+            // Update global coordinates
             currentLatitude = (float) latitude;
             currentLongitude = (float) longitude;
+
+
 
             // ---- Compute distance to target (server coordinates) ----
             double distanceToTarget = computeDistance(
@@ -760,7 +767,15 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
             );
             Log.d("BLE", "Bearing to server: " + finalBearing + "°");
 
+            // ---- Update compass ----
             runOnUiThread(() -> updateCompassFromServer(finalBearing));
+
+            // ---- Update distance on UI ----
+            /*runOnUiThread(() -> tvDistance.setText(
+                    String.format("Distance to server: %.1f m", calculatedDistance)
+            ));*/
+
+            // ---- Build UI text ----
             sb.append("Bearing: ").append(String.format("%.2f°", finalBearing)).append("\n");
 
         } catch (Exception e) {
