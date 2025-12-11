@@ -733,13 +733,13 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         }
 
         if (userIsMovingMap) {
-            return; // NE PAS recentrer la carte
+            return; // Ne pas recentrer la carte
         }
 
         LatLng deviceLocation = new LatLng(currentLatitude, currentLongitude);
         LatLng targetLocation = new LatLng(targetLatitude, targetLongitude);
 
-        googleMap.clear();
+        googleMap.clear(); // Appelez clear() UNE SEULE FOIS au début
 
         // Add marker for target location
         googleMap.addMarker(new MarkerOptions()
@@ -756,8 +756,8 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
                 .geodesic(true);
 
         googleMap.addPolyline(polylineOptions);
+        googleMap.animateCamera(CameraUpdateFactory.newLatLngZoom(targetLocation, 16f), 300, null);
 
-        googleMap.moveCamera(CameraUpdateFactory.newLatLng(targetLocation));
         Log.d("MAP", "✓ Map updated successfully with line to target");
     }
 
